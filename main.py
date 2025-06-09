@@ -60,7 +60,8 @@ FORMAT = pyaudio.paFloat32
 CHANNELS = 1
 RATE = 16_000
 CHUNK = 1024
-RECORD_SECONDS = 5
+RECORD_SECONDS = 1
+WINDOW_SECONDS = 5
 SILENCE_THRESHOLD = 0.2
 
 MODEL = AutoModel(
@@ -132,6 +133,8 @@ async def main():
     await ws.connect()
     await ws.wait_until_identified()
 
+    history_frames = []
+
     # keep iterating through windows
     try:
         print("Listening to input...")
@@ -141,13 +144,18 @@ async def main():
                 data = stream.read(CHUNK)
                 frames.append(data)
 
-            frame_as_np = np.frombuffer(b"".join(frames), dtype="float32")
-            print(max(frame_as_np))
-            if max(frame_as_np) <= SILENCE_THRESHOLD:
+            history_frames.append(np.frombuffer(b"".join(frames), dtype="float32"))
+            frames_as_np = np.concat(history_frames)
+            # print(max(frames_as_np))
+            if max(frames_as_np) <= SILENCE_THRESHOLD:
                 continue
 
-            emotions = get_emotion(frame_as_np)
+            if len(history_frames) * RECORD_SECONDS >= WINDOW_SECONDS:
+                history_frames.pop(0)
+
+            emotions = get_emotion(frames_as_np)
             target_emotion, value = max(emotions.items(), key=lambda x: x[1])
+
             print(f"Guessed {target_emotion} with {value}")
             await update_managed_scene_with_emotion(ws, target_emotion)
     except KeyboardInterrupt:
